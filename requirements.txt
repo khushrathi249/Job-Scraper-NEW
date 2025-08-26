@@ -1,0 +1,7 @@
+streamlit
+pandas
+gspread
+oauth2client
+linkedin-jobs-scraper
+playwright
+beautifulsoup4
