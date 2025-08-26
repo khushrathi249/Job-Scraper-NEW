@@ -1,4 +1,3 @@
-# For Playwright and Chromium
 chromium
 libnss3
 libnspr4
