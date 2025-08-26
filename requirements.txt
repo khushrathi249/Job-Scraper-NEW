@@ -3,3 +3,4 @@ pandas
 linkedin-jobs-scraper
 playwright
 beautifulsoup4
+openpyxl
