@@ -1,13 +1,20 @@
+# app.py
 import streamlit as st
 import database as db
 import scraper as sc
 import asyncio
 import sys
+from setup import setup_playwright # <-- IMPORT THE SETUP FUNCTION
 
 # --- FIX for Playwright/Asyncio error on Windows ---
 if sys.platform == 'win32':
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
+# --- RUN PLAYWRIGHT SETUP ---
+# This will run once per session thanks to @st.cache_resource
+setup_successful = setup_playwright()
+
+# --- Page Configuration ---
 st.set_page_config(page_title="Job Scraper Dashboard", layout="wide")
 
 # --- Database ---
@@ -20,6 +27,11 @@ else:
 
 # --- UI ---
 st.title("👨‍💻 Startup Job Search")
+
+# Stop the app if setup failed
+if not setup_successful:
+    st.warning("Scraping functionality is disabled until the setup issue is resolved.")
+    st.stop()
 
 # --- Search ---
 st.header("Search Jobs in Database")
@@ -42,11 +54,10 @@ if st.sidebar.button("🚀 Update Database"):
     with st.spinner("Scraping new jobs... This may take a few minutes."):
         scraped_df = sc.run_full_scrape(linkedin_limit=li_limit, iimjobs_limit=iim_limit)
     
-    if not scraped_df.empty:
+    if scraped_df is not None and not scraped_df.empty:
         st.sidebar.write(f"Found {len(scraped_df)} new jobs. Adding to DB...")
         db.add_jobs_df(conn, scraped_df)
         st.sidebar.success("Database updated!")
         st.rerun()
     else:
         st.sidebar.warning("No new jobs found.")
-
