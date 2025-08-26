@@ -1,3 +1,4 @@
+# database.py
 import sqlite3
 import pandas as pd
 
@@ -24,7 +25,9 @@ def create_table(conn):
         print(e)
 
 def add_jobs_df(conn, df):
+    # Ensure DataFrame columns match the database schema
     df.rename(columns={'Posted Date': 'PostedDate', 'Source Portal': 'SourcePortal'}, inplace=True)
+    # Using INSERT OR IGNORE to handle the UNIQUE constraint gracefully
     df.to_sql('jobs', conn, if_exists='append', index=False)
     print(f"Database update complete. Processed {len(df)} records.")
 
@@ -39,3 +42,8 @@ def search_jobs(conn, role, location):
         params.append(f"%{location}%")
     query += " ORDER BY PostedDate DESC"
     return pd.read_sql_query(query, conn, params=params)
+
+def get_all_jobs(conn):
+    """Fetches all jobs from the database for download."""
+    query = "SELECT Company, Role, Location, Experience, PostedDate AS 'Posted Date', SourcePortal AS 'Source Portal' FROM jobs"
+    return pd.read_sql_query(query, conn)
