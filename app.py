@@ -35,8 +35,8 @@ if st.button("Search"):
 
 # --- Sidebar ---
 st.sidebar.header("Database Maintenance")
-li_limit = st.sidebar.number_input("LinkedIn Jobs to Scrape", 10, 200, 20)
-iim_limit = st.sidebar.number_input("IIMJobs Pages to Scroll", 1, 10, 1)
+li_limit = st.sidebar.number_input("LinkedIn Jobs to Scrape", min_value=10, max_value=500, value=50, step=10)
+iim_limit = st.sidebar.number_input("IIMJobs Pages to Scroll", min_value=1, max_value=50, value=5, step=1)
 
 if st.sidebar.button("🚀 Update Database"):
     with st.spinner("Scraping new jobs... This may take a few minutes."):
@@ -49,3 +49,4 @@ if st.sidebar.button("🚀 Update Database"):
         st.rerun()
     else:
         st.sidebar.warning("No new jobs found.")
+
