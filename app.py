@@ -50,7 +50,6 @@ with st.sidebar.expander("Scrape New Jobs"):
             st.sidebar.warning("No new jobs found.")
 
 with st.sidebar.expander("Download Database"):
-    # (The download code remains the same and will work with the updated db file)
     st.write("Download the entire job database as an Excel file.")
     with st.spinner("Preparing download..."):
         all_jobs_df = db.get_all_jobs()
@@ -64,14 +63,13 @@ with st.sidebar.expander("Download Database"):
     )
 
 with st.sidebar.expander("Upload to Database"):
-    st.write("Upload an Excel file with new job entries.")
+    st.write("Upload an Excel file. **Must contain 'Company', 'Role', and 'Location' columns.**")
     uploaded_file = st.file_uploader("Choose an Excel file", type=['xlsx', 'xls'])
 
     if uploaded_file is not None:
         try:
             upload_df = pd.read_excel(uploaded_file)
-            # Standardize column names from the upload
-            upload_df.columns = [col.lower().replace(' ', '') for col in upload_df.columns]
+            upload_df.columns = [col.lower().strip().replace(' ', '') for col in upload_df.columns]
             
             required_cols = {'company', 'role', 'location'}
             if not required_cols.issubset(upload_df.columns):
@@ -79,28 +77,42 @@ with st.sidebar.expander("Upload to Database"):
             else:
                 st.write("Checking for new entries...")
                 
-                # Check for duplicates before uploading
-                existing_jobs_df = db.get_all_jobs_raw()
+                # --- Robust Data Cleaning and Duplicate Check ---
+                key_cols = ['company', 'role', 'location']
                 
+                # 1. Clean uploaded data
+                for col in upload_df.columns:
+                    if col in key_cols:
+                        upload_df[col] = upload_df[col].astype(str).str.strip()
+                
+                # 2. Get and clean existing data
+                existing_jobs_df = db.get_all_jobs_raw()
                 if not existing_jobs_df.empty:
-                    # Create a unique identifier for merging
-                    upload_df['unique_id'] = upload_df['company'] + upload_df['role'] + upload_df['location']
-                    existing_jobs_df['unique_id'] = existing_jobs_df['company'] + existing_jobs_df['role'] + existing_jobs_df['location']
-                    
-                    # Filter for rows that are not in the existing database
-                    new_jobs_df = upload_df[~upload_df['unique_id'].isin(existing_jobs_df['unique_id'])]
-                    new_jobs_df = new_jobs_df.drop(columns=['unique_id'])
+                    for col in existing_jobs_df.columns:
+                        if col in key_cols:
+                            existing_jobs_df[col] = existing_jobs_df[col].astype(str).str.strip()
+                
+                # 3. Merge to find new jobs
+                if not existing_jobs_df.empty:
+                    merged_df = upload_df.merge(existing_jobs_df, on=key_cols, how='left', indicator=True)
+                    new_jobs_df = merged_df[merged_df['_merge'] == 'left_only'].drop(columns=['_merge'])
                 else:
                     new_jobs_df = upload_df
-
+                
                 num_new_jobs = len(new_jobs_df)
                 num_duplicates = len(upload_df) - num_new_jobs
                 
                 st.info(f"Found **{num_new_jobs}** new job entries. Ignored **{num_duplicates}** duplicates.")
 
                 if num_new_jobs > 0 and st.button(f"Add {num_new_jobs} New Jobs to Database"):
+                    # Ensure all necessary columns exist before adding
+                    final_cols = ['company', 'role', 'location', 'experience', 'posteddate', 'sourceportal']
+                    for col in final_cols:
+                        if col not in new_jobs_df.columns:
+                            new_jobs_df[col] = '' # Add missing columns as empty strings
+                    
                     with st.spinner("Adding jobs..."):
-                        db.add_jobs_df(new_jobs_df)
+                        db.add_jobs_df(new_jobs_df[final_cols])
                     st.success("Successfully added new jobs from file!")
                     st.rerun()
 
