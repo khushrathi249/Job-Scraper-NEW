@@ -21,13 +21,20 @@ def add_jobs_df(df):
         print(f"Error adding jobs to Supabase: {e}")
         st.error(f"An error occurred while saving jobs: {e}")
 
+def format_columns_for_display(df):
+    """Formats DataFrame columns from lowercase to title case for display."""
+    df.columns = [col.replace('posteddate', 'Posted Date').replace('sourceportal', 'Source Portal').title() for col in df.columns]
+    return df
+
+# --- NEW FUNCTION ADDED HERE ---
 def get_all_jobs_raw():
-    """Fetches all jobs with raw lowercase column names."""
+    """Fetches all jobs with raw lowercase column names for internal checks."""
     try:
+        # Select only the columns needed for the unique check
         data = supabase.table('jobs').select('company, role, location').execute().data
         return pd.DataFrame(data) if data else pd.DataFrame()
     except Exception as e:
-        st.error(f"An error occurred while fetching jobs: {e}")
+        st.error(f"An error occurred while fetching raw jobs data: {e}")
         return pd.DataFrame()
 
 def search_jobs(role, location):
@@ -42,10 +49,9 @@ def search_jobs(role, location):
         data = query.execute().data
         if not data:
             return pd.DataFrame()
-        
+
         df = pd.DataFrame(data)
-        df.columns = [col.replace('posteddate', 'Posted Date').replace('sourceportal', 'Source Portal').title() for col in df.columns]
-        return df
+        return format_columns_for_display(df)
     except Exception as e:
         st.error(f"An error occurred while searching: {e}")
         return pd.DataFrame()
@@ -56,9 +62,9 @@ def get_all_jobs():
         data = supabase.table('jobs').select('*').execute().data
         if not data:
             return pd.DataFrame()
+            
         df = pd.DataFrame(data)
-        df.columns = [col.replace('posteddate', 'Posted Date').replace('sourceportal', 'Source Portal').title() for col in df.columns]
-        return df
+        return format_columns_for_display(df)
     except Exception as e:
         st.error(f"An error occurred while fetching all jobs: {e}")
         return pd.DataFrame()
