@@ -42,7 +42,7 @@ with st.sidebar.expander("Scrape New Jobs"):
             scraped_df = sc.run_full_scrape(linkedin_limit=li_limit, iimjobs_limit=iim_limit)
         
         if scraped_df is not None and not scraped_df.empty:
-            st.sidebar.write(f"Found {len(scraped_df)} jobs. Adding to database...")
+            st.sidebar.write(f"Found {len(scraped_df)} new jobs. Adding to DB...")
             db.add_jobs_df(scraped_df)
             st.sidebar.success("Database updated!")
             st.rerun()
@@ -63,13 +63,18 @@ with st.sidebar.expander("Download Database"):
     )
 
 with st.sidebar.expander("Upload to Database"):
-    st.write("Upload an Excel file. **Must contain 'Company', 'Role', and 'Location' columns.**")
+    st.write("Upload an Excel file with new job entries.")
     uploaded_file = st.file_uploader("Choose an Excel file", type=['xlsx', 'xls'])
 
     if uploaded_file is not None:
         try:
             upload_df = pd.read_excel(uploaded_file)
-            upload_df.columns = [col.lower().strip().replace(' ', '') for col in upload_df.columns]
+            
+            # --- FIX: Replace all NaN values with empty strings ---
+            upload_df = upload_df.fillna('')
+            
+            # Standardize column names from the upload
+            upload_df.columns = [col.lower().replace(' ', '') for col in upload_df.columns]
             
             required_cols = {'company', 'role', 'location'}
             if not required_cols.issubset(upload_df.columns):
@@ -77,42 +82,25 @@ with st.sidebar.expander("Upload to Database"):
             else:
                 st.write("Checking for new entries...")
                 
-                # --- Robust Data Cleaning and Duplicate Check ---
-                key_cols = ['company', 'role', 'location']
-                
-                # 1. Clean uploaded data
-                for col in upload_df.columns:
-                    if col in key_cols:
-                        upload_df[col] = upload_df[col].astype(str).str.strip()
-                
-                # 2. Get and clean existing data
                 existing_jobs_df = db.get_all_jobs_raw()
-                if not existing_jobs_df.empty:
-                    for col in existing_jobs_df.columns:
-                        if col in key_cols:
-                            existing_jobs_df[col] = existing_jobs_df[col].astype(str).str.strip()
                 
-                # 3. Merge to find new jobs
                 if not existing_jobs_df.empty:
-                    merged_df = upload_df.merge(existing_jobs_df, on=key_cols, how='left', indicator=True)
-                    new_jobs_df = merged_df[merged_df['_merge'] == 'left_only'].drop(columns=['_merge'])
+                    upload_df['unique_id'] = upload_df['company'].astype(str) + upload_df['role'].astype(str) + upload_df['location'].astype(str)
+                    existing_jobs_df['unique_id'] = existing_jobs_df['company'].astype(str) + existing_jobs_df['role'].astype(str) + existing_jobs_df['location'].astype(str)
+                    
+                    new_jobs_df = upload_df[~upload_df['unique_id'].isin(existing_jobs_df['unique_id'])]
+                    new_jobs_df = new_jobs_df.drop(columns=['unique_id'])
                 else:
                     new_jobs_df = upload_df
-                
+
                 num_new_jobs = len(new_jobs_df)
                 num_duplicates = len(upload_df) - num_new_jobs
                 
                 st.info(f"Found **{num_new_jobs}** new job entries. Ignored **{num_duplicates}** duplicates.")
 
                 if num_new_jobs > 0 and st.button(f"Add {num_new_jobs} New Jobs to Database"):
-                    # Ensure all necessary columns exist before adding
-                    final_cols = ['company', 'role', 'location', 'experience', 'posteddate', 'sourceportal']
-                    for col in final_cols:
-                        if col not in new_jobs_df.columns:
-                            new_jobs_df[col] = '' # Add missing columns as empty strings
-                    
                     with st.spinner("Adding jobs..."):
-                        db.add_jobs_df(new_jobs_df[final_cols])
+                        db.add_jobs_df(new_jobs_df)
                     st.success("Successfully added new jobs from file!")
                     st.rerun()
 
