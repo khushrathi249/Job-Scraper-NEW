@@ -58,7 +58,7 @@ def convert_date(text):
     if (m := re.search(r'(\d+)\s+weeks?', text)): return (today - timedelta(weeks=int(m.group(1)))).strftime('%d-%m-%Y')
     if (m := re.search(r'(\d+)\s+months?', text)): return (today - timedelta(days=int(m.group(1)) * 30)).strftime('%d-%m-%Y')
     
-    return today.strftime('%d-%m-%Y') # Default for "today", "just now", etc.
+    return today.strftime('%d-%m-%Y')
 
 def is_startup_company(company_name, description=""):
     if not company_name: return False
@@ -76,8 +76,8 @@ def extract_experience_from_description(description):
     if not description: return ""
     desc_lower = description.lower()
     patterns = [
-        r'(\d+)\+?\s*to\s*(\d+)\s*years', r'(\d+)\s*-\s*(\d+)\s*years', # e.g., 3 to 5 years, 3 - 5 years
-        r'(\d+)\+?\s*years?' # e.g., 3+ years, 5 years
+        r'(\d+)\+?\s*to\s*(\d+)\s*years', r'(\d+)\s*-\s*(\d+)\s*years',
+        r'(\d+)\+?\s*years?'
     ]
     for pattern in patterns:
         match = re.search(pattern, desc_lower)
@@ -118,7 +118,7 @@ def run_linkedin_scraper(queries, limit=50):
     global linkedin_jobs_data, linkedin_scraped_count
     linkedin_jobs_data = []; linkedin_scraped_count = 0
     
-    scraper = LinkedinScraper(headless=True, max_workers=1, slow_mo=1)
+    scraper = LinkedinScraper(headless=True, max_workers=1, slow_mo=1.5)
     scraper.on(Events.DATA, on_linkedin_data)
     
     for query in queries:
@@ -185,17 +185,9 @@ def create_linkedin_broad_queries():
         for keyword in startup_keywords:
             for city in INDIAN_CITIES:
                 queries.append(
-                    Query(
-                        query=f'{role} {keyword}',
-                        options=QueryOptions(
-                            locations=[city],
-                            limit=25, # Limit per query
-                            filters=QueryFilters(
-                                time=TimeFilters.MONTH,
-                                relevance=RelevanceFilters.RELEVANT
-                            )
-                        )
-                    )
+                    Query(query=f'{role} {keyword}',
+                          options=QueryOptions(locations=[city], limit=25,
+                                               filters=QueryFilters(time=TimeFilters.MONTH, relevance=RelevanceFilters.RELEVANT)))
                 )
     random.shuffle(queries)
     return queries
@@ -204,7 +196,6 @@ def run_full_scrape(linkedin_limit, iimjobs_limit):
     """Runs a broad, generic scrape for database updates."""
     print("Starting broad LinkedIn scrape...")
     broad_queries = create_linkedin_broad_queries()
-    # Limit the number of queries to run for a broad scrape
     df_linkedin = run_linkedin_scraper(queries=broad_queries[:10], limit=linkedin_limit) 
     
     print("\nStarting IIMJobs scrape...")
@@ -222,10 +213,11 @@ def scrape_targeted_jobs(role, location, limit=25):
     if not role and not location:
         return pd.DataFrame()
     
-    print(f"Starting targeted scrape for role='{role}', location='{location}'")
-    search_query = f"{role} startup" if role else "startup"
-    locations_list = [location] if location else None
+    search_query = role if role else "startup jobs"
+    locations_list = [loc.strip() for loc in location.split(',')] if location else None
     
+    print(f"Starting targeted scrape for query='{search_query}', location='{locations_list}', limit={limit}")
+
     queries = [
         Query(
             query=search_query,
