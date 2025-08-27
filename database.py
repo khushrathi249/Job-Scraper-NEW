@@ -14,37 +14,44 @@ except Exception as e:
 
 def add_jobs_df(df):
     """Adds a DataFrame of jobs to the Supabase 'jobs' table."""
+    
+    # --- FIX: Standardize column names to lowercase before sending ---
+    df.columns = [col.lower().replace(' ', '') for col in df.columns]
+
     # Convert DataFrame to a list of dictionaries
     records = df.to_dict(orient='records')
-    
-    # Rename columns to match Supabase (snake_case is conventional but not required if table is CamelCase)
-    for record in records:
-        record['PostedDate'] = record.pop('Posted Date', None)
-        record['SourcePortal'] = record.pop('Source Portal', None)
 
     try:
-        # Upsert inserts new rows and ignores duplicates based on the UNIQUE constraint
-        supabase.table('jobs').upsert(records, on_conflict='Company, Role, Location').execute()
+        # Upsert using lowercase column names
+        supabase.table('jobs').upsert(records, on_conflict='company, role, location').execute()
         print(f"Database update complete. Processed {len(records)} records.")
     except Exception as e:
         print(f"Error adding jobs to Supabase: {e}")
         st.error(f"An error occurred while saving jobs: {e}")
 
 
+def format_columns_for_display(df):
+    """Formats DataFrame columns from lowercase to title case for display."""
+    df.columns = [col.replace('posteddate', 'Posted Date').replace('sourceportal', 'Source Portal').title() for col in df.columns]
+    return df
+
+
 def search_jobs(role, location):
     """Searches for jobs by role and location in Supabase."""
     try:
+        # --- FIX: Use lowercase column names in queries ---
         query = supabase.table('jobs').select('*')
         if role:
-            query = query.ilike('Role', f'%{role}%')
+            query = query.ilike('role', f'%{role}%')
         if location:
-            query = query.ilike('Location', f'%{location}%')
+            query = query.ilike('location', f'%{location}%')
         
         data = query.execute().data
+        if not data:
+            return pd.DataFrame()
+
         df = pd.DataFrame(data)
-        # Rename columns for display
-        df.rename(columns={'PostedDate': 'Posted Date', 'SourcePortal': 'Source Portal'}, inplace=True)
-        return df
+        return format_columns_for_display(df)
     except Exception as e:
         st.error(f"An error occurred while searching: {e}")
         return pd.DataFrame()
@@ -54,9 +61,11 @@ def get_all_jobs():
     """Fetches all jobs from the Supabase database."""
     try:
         data = supabase.table('jobs').select('*').execute().data
+        if not data:
+            return pd.DataFrame()
+            
         df = pd.DataFrame(data)
-        df.rename(columns={'PostedDate': 'Posted Date', 'SourcePortal': 'Source Portal'}, inplace=True)
-        return df
+        return format_columns_for_display(df)
     except Exception as e:
         st.error(f"An error occurred while fetching all jobs: {e}")
         return pd.DataFrame()
