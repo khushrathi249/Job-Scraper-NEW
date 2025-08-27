@@ -8,14 +8,11 @@ import io
 import time
 from setup import setup_playwright
 
-# --- FIX for Playwright/Asyncio error on Windows ---
 if sys.platform == 'win32':
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-# --- Run Playwright Setup ---
 setup_successful = setup_playwright()
 
-# --- Page Configuration ---
 st.set_page_config(page_title="Job Scraper Dashboard", layout="wide")
 st.title("👨‍💻 Startup Job Search")
 
@@ -23,10 +20,9 @@ if not setup_successful:
     st.warning("Scraping functionality is disabled until the setup issue is resolved.")
     st.stop()
 
-# --- Main Page Search ---
+# --- Search ---
 st.header("Search Jobs in Database")
 col1, col2 = st.columns(2)
-# Use .strip() to remove accidental whitespace from user input
 search_role = col1.text_input("Role").strip()
 search_location = col2.text_input("Location").strip()
 
@@ -41,37 +37,39 @@ if st.button("Search", key="search_button"):
     else:
         st.info("No jobs found in the database matching your criteria.")
         
-        # --- Offer to scrape if no results are found ---
         if search_role or search_location:
-            st.write("") # Add a little space
+            st.write("")
             
-            # --- Number input to control scrape depth ---
+            apply_startup_filter = st.checkbox(
+                "Only show jobs from startups", 
+                value=True, 
+                key="filter_checkbox"
+            )
+
             targeted_limit = st.number_input(
                 "Number of jobs to scrape", 
-                min_value=10, 
-                max_value=200, 
-                value=25, 
-                step=5,
+                min_value=10, max_value=200, value=25, step=5,
                 key="targeted_scrape_limit"
             )
 
             scrape_prompt = f"Scrape for '{search_role or 'any role'}' in '{search_location or 'any location'}'?"
             if st.button(scrape_prompt, key="scrape_now_button"):
-                with st.spinner(f"Performing a targeted scrape for {targeted_limit} jobs... This may take a moment."):
+                with st.spinner(f"Performing a targeted scrape... This may take a moment."):
                     targeted_df = sc.scrape_targeted_jobs(
                         role=search_role, 
                         location=search_location,
-                        limit=targeted_limit
+                        limit=targeted_limit,
+                        apply_filter=apply_startup_filter
                     )
                 
                 if not targeted_df.empty:
                     st.write(f"Found {len(targeted_df)} new jobs. Adding to database...")
                     db.add_jobs_df(targeted_df)
                     st.success("Scrape complete! Your search results will now be updated.")
-                    time.sleep(2) # Brief pause for user to read the message
-                    st.rerun() # Rerun the script to show the new results
+                    time.sleep(2)
+                    st.rerun()
                 else:
-                    st.warning("The targeted scrape did not find any new startup jobs for this search.")
+                    st.warning("The targeted scrape did not find any new jobs for this search.")
 
 # --- Sidebar ---
 st.sidebar.header("Database Maintenance")
