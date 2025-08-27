@@ -92,6 +92,8 @@ with st.sidebar.expander("Upload to Database"):
         try:
             upload_df = pd.read_excel(uploaded_file).fillna('')
             upload_df.columns = [col.lower().replace(' ', '') for col in upload_df.columns]
+            if 'id' in upload_df.columns:
+                upload_df = upload_df.drop(columns=['id'])
             required_cols = {'company', 'role', 'location'}
             if not required_cols.issubset(upload_df.columns):
                 st.error(f"Upload failed. File must contain: {', '.join(required_cols)}")
@@ -114,3 +116,4 @@ with st.sidebar.expander("Upload to Database"):
                     st.rerun()
         except Exception as e:
             st.error(f"An error occurred: {e}")
+
