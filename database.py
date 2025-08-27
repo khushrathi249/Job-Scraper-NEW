@@ -1,49 +1,62 @@
-# database.py
-import sqlite3
+import streamlit as st
 import pandas as pd
+from supabase import create_client, Client
 
-DB_FILE = "jobs.db"
+# Initialize connection to Supabase
+try:
+    supabase_url = st.secrets["SUPABASE_URL"]
+    supabase_key = st.secrets["SUPABASE_KEY"]
+    supabase: Client = create_client(supabase_url, supabase_key)
+except Exception as e:
+    st.error("Failed to connect to Supabase. Please check your secrets.toml file and Supabase credentials.")
+    st.stop()
 
-def create_connection():
+
+def add_jobs_df(df):
+    """Adds a DataFrame of jobs to the Supabase 'jobs' table."""
+    # Convert DataFrame to a list of dictionaries
+    records = df.to_dict(orient='records')
+    
+    # Rename columns to match Supabase (snake_case is conventional but not required if table is CamelCase)
+    for record in records:
+        record['PostedDate'] = record.pop('Posted Date', None)
+        record['SourcePortal'] = record.pop('Source Portal', None)
+
     try:
-        conn = sqlite3.connect(DB_FILE, check_same_thread=False) # Important for Streamlit
-        return conn
-    except sqlite3.Error as e:
-        print(e)
-    return None
+        # Upsert inserts new rows and ignores duplicates based on the UNIQUE constraint
+        supabase.table('jobs').upsert(records, on_conflict='Company, Role, Location').execute()
+        print(f"Database update complete. Processed {len(records)} records.")
+    except Exception as e:
+        print(f"Error adding jobs to Supabase: {e}")
+        st.error(f"An error occurred while saving jobs: {e}")
 
-def create_table(conn):
+
+def search_jobs(role, location):
+    """Searches for jobs by role and location in Supabase."""
     try:
-        sql = """CREATE TABLE IF NOT EXISTS jobs (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    Company TEXT, Role TEXT, Location TEXT,
-                    Experience TEXT, PostedDate TEXT, SourcePortal TEXT,
-                    UNIQUE(Company, Role, Location)
-                );"""
-        conn.cursor().execute(sql)
-    except sqlite3.Error as e:
-        print(e)
+        query = supabase.table('jobs').select('*')
+        if role:
+            query = query.ilike('Role', f'%{role}%')
+        if location:
+            query = query.ilike('Location', f'%{location}%')
+        
+        data = query.execute().data
+        df = pd.DataFrame(data)
+        # Rename columns for display
+        df.rename(columns={'PostedDate': 'Posted Date', 'SourcePortal': 'Source Portal'}, inplace=True)
+        return df
+    except Exception as e:
+        st.error(f"An error occurred while searching: {e}")
+        return pd.DataFrame()
 
-def add_jobs_df(conn, df):
-    # Ensure DataFrame columns match the database schema
-    df.rename(columns={'Posted Date': 'PostedDate', 'Source Portal': 'SourcePortal'}, inplace=True)
-    # Using INSERT OR IGNORE to handle the UNIQUE constraint gracefully
-    df.to_sql('jobs', conn, if_exists='append', index=False)
-    print(f"Database update complete. Processed {len(df)} records.")
 
-def search_jobs(conn, role, location):
-    query = "SELECT Company, Role, Location, Experience, PostedDate, SourcePortal FROM jobs WHERE 1=1"
-    params = []
-    if role:
-        query += " AND Role LIKE ?"
-        params.append(f"%{role}%")
-    if location:
-        query += " AND Location LIKE ?"
-        params.append(f"%{location}%")
-    query += " ORDER BY PostedDate DESC"
-    return pd.read_sql_query(query, conn, params=params)
-
-def get_all_jobs(conn):
-    """Fetches all jobs from the database for download."""
-    query = "SELECT Company, Role, Location, Experience, PostedDate AS 'Posted Date', SourcePortal AS 'Source Portal' FROM jobs"
-    return pd.read_sql_query(query, conn)
+def get_all_jobs():
+    """Fetches all jobs from the Supabase database."""
+    try:
+        data = supabase.table('jobs').select('*').execute().data
+        df = pd.DataFrame(data)
+        df.rename(columns={'PostedDate': 'Posted Date', 'SourcePortal': 'Source Portal'}, inplace=True)
+        return df
+    except Exception as e:
+        st.error(f"An error occurred while fetching all jobs: {e}")
+        return pd.DataFrame()
