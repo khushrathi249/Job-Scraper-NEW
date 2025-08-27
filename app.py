@@ -74,7 +74,7 @@ if st.button("Search", key="search_button"):
 # --- Sidebar ---
 st.sidebar.header("Database Maintenance")
 with st.sidebar.expander("Update Database (Broad Scrape)"):
-    li_limit = st.sidebar.number_input("LinkedIn Jobs to Scrape", 10, 200, 50, key="broad_li_limit")
+    li_limit = st.sidebar.number_input("LinkedIn Jobs to Scrape", 10, 200, 50, step=10, key="broad_li_limit")
     iim_limit = st.sidebar.number_input("IIMJobs Pages to Scroll", 1, 10, 2, key="broad_iim_limit")
 
     if st.sidebar.button("🚀 Start Broad Scrape"):
@@ -143,3 +143,4 @@ with st.sidebar.expander("Upload to Database"):
                     st.rerun()
         except Exception as e:
             st.error(f"An error occurred: {e}")
+
