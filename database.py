@@ -26,19 +26,17 @@ def format_columns_for_display(df):
     df.columns = [col.replace('posteddate', 'Posted Date').replace('sourceportal', 'Source Portal').title() for col in df.columns]
     return df
 
-# --- NEW FUNCTION ADDED HERE ---
 def get_all_jobs_raw():
     """Fetches all jobs with raw lowercase column names for internal checks."""
     try:
-        # Select only the columns needed for the unique check
         data = supabase.table('jobs').select('company, role, location').execute().data
         return pd.DataFrame(data) if data else pd.DataFrame()
     except Exception as e:
         st.error(f"An error occurred while fetching raw jobs data: {e}")
         return pd.DataFrame()
 
-def search_jobs(role, location):
-    """Searches for jobs by role and location in Supabase."""
+def search_jobs(role, location, start_date=None, end_date=None):
+    """Searches for jobs by role, location, and optionally filters by date range."""
     try:
         query = supabase.table('jobs').select('*')
         if role:
@@ -51,6 +49,20 @@ def search_jobs(role, location):
             return pd.DataFrame()
 
         df = pd.DataFrame(data)
+
+        # Date filtering logic
+        if start_date and end_date:
+            # Convert posteddate column to datetime objects for comparison
+            # errors='coerce' will turn any unparseable dates into NaT (Not a Time)
+            df['posteddate_dt'] = pd.to_datetime(df['posteddate'], format='%d-%m-%Y', errors='coerce')
+            
+            # Filter the DataFrame
+            mask = (df['posteddate_dt'] >= start_date) & (df['posteddate_dt'] <= end_date)
+            df = df.loc[mask]
+            
+            # Drop the temporary datetime column
+            df = df.drop(columns=['posteddate_dt'])
+
         return format_columns_for_display(df)
     except Exception as e:
         st.error(f"An error occurred while searching: {e}")
@@ -62,7 +74,6 @@ def get_all_jobs():
         data = supabase.table('jobs').select('*').execute().data
         if not data:
             return pd.DataFrame()
-            
         df = pd.DataFrame(data)
         return format_columns_for_display(df)
     except Exception as e:
