@@ -39,7 +39,6 @@ if filter_by_date:
 
 # --- Search Execution ---
 if st.button("Search", key="search_button"):
-    # Convert date objects to datetime for comparison
     start_datetime = datetime.combine(start_date, datetime.min.time()) if start_date else None
     end_datetime = datetime.combine(end_date, datetime.max.time()) if end_date else None
     
@@ -77,8 +76,9 @@ if st.button("Search", key="search_button"):
 
 # --- Sidebar ---
 st.sidebar.header("Database Maintenance")
+
 with st.sidebar.expander("Update Database (Broad Scrape)"):
-    li_limit = st.sidebar.number_input("LinkedIn Jobs to Scrape", 10, 200, 50, step=10, key="broad_li_limit")
+    li_limit = st.sidebar.number_input("LinkedIn Jobs to Scrape", 10, 200, 50, key="broad_li_limit")
     iim_limit = st.sidebar.number_input("IIMJobs Pages to Scroll", 1, 10, 2, key="broad_iim_limit")
 
     if st.sidebar.button("🚀 Start Broad Scrape"):
@@ -89,13 +89,18 @@ with st.sidebar.expander("Update Database (Broad Scrape)"):
         progress_bar.progress(100, text="Scrape complete! Checking for new entries...")
         
         if scraped_df is not None and not scraped_df.empty:
+            # FIX: Convert scraped columns to lowercase BEFORE comparing
+            scraped_df.columns = [col.lower().replace(' ', '') for col in scraped_df.columns]
+
             existing_jobs_df = db.get_all_jobs_raw()
-            scraped_df['unique_id'] = scraped_df['Company'].astype(str) + scraped_df['Role'].astype(str) + scraped_df['Location'].astype(str)
+            
+            scraped_df['unique_id'] = scraped_df['company'].astype(str) + scraped_df['role'].astype(str) + scraped_df['location'].astype(str)
             if not existing_jobs_df.empty:
                 existing_jobs_df['unique_id'] = existing_jobs_df['company'].astype(str) + existing_jobs_df['role'].astype(str) + existing_jobs_df['location'].astype(str)
                 new_jobs_df = scraped_df[~scraped_df['unique_id'].isin(existing_jobs_df['unique_id'])]
             else:
                 new_jobs_df = scraped_df
+
             new_jobs_df = new_jobs_df.drop(columns=['unique_id'])
             num_new_jobs = len(new_jobs_df)
 
@@ -106,11 +111,11 @@ with st.sidebar.expander("Update Database (Broad Scrape)"):
                 st.sidebar.info("No new jobs found. Database is already up to date.")
             
             time.sleep(3)
+            progress_bar.empty()
             st.rerun()
         else:
             st.sidebar.warning("No jobs were found in the scrape.")
-        
-        progress_bar.empty()
+            progress_bar.empty()
 
 with st.sidebar.expander("Download Database"):
     st.write("Download the entire job database as an Excel file.")
@@ -128,6 +133,7 @@ with st.sidebar.expander("Download Database"):
 with st.sidebar.expander("Upload to Database"):
     st.write("Upload an Excel or CSV file with new job entries.")
     uploaded_file = st.file_uploader("Choose a file", type=['xlsx', 'xls', 'csv'])
+
     if uploaded_file is not None:
         try:
             file_extension = uploaded_file.name.split('.')[-1].lower()
@@ -135,24 +141,30 @@ with st.sidebar.expander("Upload to Database"):
                 upload_df = pd.read_csv(uploaded_file)
             else:
                 upload_df = pd.read_excel(uploaded_file)
+
             upload_df = upload_df.fillna('')
             if 'id' in upload_df.columns:
                 upload_df = upload_df.drop(columns=['id'])
+
             upload_df.columns = [col.lower().replace(' ', '') for col in upload_df.columns]
+            
             required_cols = {'company', 'role', 'location'}
             if not required_cols.issubset(upload_df.columns):
                 st.error(f"Upload failed. File must contain at least: {', '.join(required_cols)}")
             else:
                 existing_jobs_df = db.get_all_jobs_raw()
+                
                 if not existing_jobs_df.empty:
                     upload_df['unique_id'] = upload_df['company'].astype(str) + upload_df['role'].astype(str) + upload_df['location'].astype(str)
                     existing_jobs_df['unique_id'] = existing_jobs_df['company'].astype(str) + existing_jobs_df['role'].astype(str) + existing_jobs_df['location'].astype(str)
                     new_jobs_df = upload_df[~upload_df['unique_id'].isin(existing_jobs_df['unique_id'])].drop(columns=['unique_id'])
                 else:
                     new_jobs_df = upload_df
+                
                 num_new_jobs = len(new_jobs_df)
                 num_duplicates = len(upload_df) - num_new_jobs
                 st.info(f"Found **{num_new_jobs}** new job entries. Ignored **{num_duplicates}** duplicates.")
+
                 if num_new_jobs > 0 and st.button(f"Add {num_new_jobs} New Jobs to Database"):
                     db.add_jobs_df(new_jobs_df)
                     st.success("Successfully added jobs!")
