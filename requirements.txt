@@ -4,4 +4,5 @@ linkedin-jobs-scraper
 playwright
 beautifulsoup4
 openpyxl
-supabase
+gspread
+oauth2client
