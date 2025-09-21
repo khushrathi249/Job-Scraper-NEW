@@ -1,89 +1,116 @@
 import streamlit as st
 import pandas as pd
-from supabase import create_client, Client
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 
-try:
-    supabase_url = st.secrets["SUPABASE_URL"]
-    supabase_key = st.secrets["SUPABASE_KEY"]
-    supabase: Client = create_client(supabase_url, supabase_key)
-except Exception as e:
-    st.error("Failed to connect to Supabase. Check secrets.toml.")
-    st.stop()
-
-def add_jobs_df(df):
-    """
-    Adds a DataFrame to the Supabase 'jobs' table and returns the count of new rows.
-    """
-    # Standardize column names to lowercase for Supabase
-    df.columns = [col.lower().replace(' ', '') for col in df.columns]
-    
-    # Ensure required columns exist, even if empty, to prevent errors
-    for col in ['company', 'role', 'location', 'experience', 'posteddate', 'sourceportal']:
-        if col not in df.columns:
-            df[col] = ''
-
-    records = df.to_dict(orient='records')
-    
+# --- GOOGLE SHEETS CONNECTION ---
+@st.cache_resource
+def connect_to_gsheet():
+    """Connects to the Google Sheet and returns the worksheet object."""
     try:
-        # The 'upsert' command correctly ignores duplicates and returns the new data.
-        result = supabase.table('jobs').upsert(records, on_conflict='company, role, location').execute()
-        # Return the number of rows that were actually inserted.
-        return len(result.data)
+        scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+        creds_dict = st.secrets["gcp_service_account"]
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        client = gspread.authorize(creds)
+        
+        spreadsheet_name = st.secrets["GOOGLE_SHEET_NAME"]
+        spreadsheet = client.open(spreadsheet_name)
+        
+        worksheet = spreadsheet.worksheet("All Jobs") # Assumes your sheet's tab is named "All Jobs"
+        print("Successfully connected to Google Sheet.")
+        return worksheet
+    except gspread.exceptions.SpreadsheetNotFound:
+        st.error(f"Spreadsheet '{st.secrets['GOOGLE_SHEET_NAME']}' not found. Check the name and sharing settings.")
+        return None
+    except gspread.exceptions.WorksheetNotFound:
+        st.error("Worksheet named 'All Jobs' not found in your spreadsheet.")
+        return None
     except Exception as e:
-        st.error(f"An error occurred while saving jobs: {e}")
+        st.error(f"Failed to connect to Google Sheets: {e}")
+        return None
+
+def get_all_jobs_df(worksheet):
+    """Fetches all records from the worksheet and returns a pandas DataFrame."""
+    if worksheet is None:
+        return pd.DataFrame()
+    try:
+        data = worksheet.get_all_records()
+        df = pd.DataFrame.from_records(data)
+        # Ensure standard column names for consistency
+        if not df.empty:
+            df.columns = [col.title().replace('_', ' ') for col in df.columns]
+        return df
+    except Exception as e:
+        st.error(f"Failed to read data from Google Sheet: {e}")
+        return pd.DataFrame()
+
+def add_jobs_df(worksheet, new_jobs_df):
+    """Adds a DataFrame of new jobs to the Google Sheet, preventing duplicates."""
+    if worksheet is None or new_jobs_df.empty:
         return 0
 
-def search_jobs(role, location, start_date=None, end_date=None):
-    """Searches jobs with efficient date filtering in the database."""
-    try:
-        query = supabase.table('jobs').select('*').order('posteddate', desc=True)
-        if role:
-            query = query.ilike('role', f'%{role}%')
-        if location:
-            query = query.ilike('location', f'%{location}%')
-        if start_date:
-            query = query.gte('posteddate', start_date.strftime('%Y-%m-%d'))
-        if end_date:
-            query = query.lte('posteddate', end_date.strftime('%Y-%m-%d'))
+    # Standardize column names of the new data to match the sheet
+    new_jobs_df.columns = [str(col).title().replace('_', ' ') for col in new_jobs_df.columns]
+    
+    existing_jobs_df = get_all_jobs_df(worksheet)
+    
+    if not existing_jobs_df.empty:
+        # Create a unique ID for each job to check for duplicates
+        new_jobs_df['unique_id'] = new_jobs_df['Company'].astype(str) + new_jobs_df['Role'].astype(str) + new_jobs_df['Location'].astype(str)
+        existing_jobs_df['unique_id'] = existing_jobs_df['Company'].astype(str) + existing_jobs_df['Role'].astype(str) + existing_jobs_df['Location'].astype(str)
         
-        data = query.execute().data
-        df = pd.DataFrame(data) if data else pd.DataFrame()
-        return format_columns_for_display(df)
-    except Exception as e:
-        st.error(f"An error occurred while searching: {e}")
+        # Filter out jobs that already exist in the sheet
+        truly_new_jobs_df = new_jobs_df[~new_jobs_df['unique_id'].isin(existing_jobs_df['unique_id'])]
+        truly_new_jobs_df = truly_new_jobs_df.drop(columns=['unique_id'])
+    else:
+        # If the sheet is empty, all scraped jobs are new
+        truly_new_jobs_df = new_jobs_df
+
+    num_new_jobs = len(truly_new_jobs_df)
+    
+    if num_new_jobs > 0:
+        try:
+            # Ensure the order of columns matches the sheet's header before appending
+            header = worksheet.row_values(1)
+            # Fill missing columns with empty strings
+            for col in header:
+                if col not in truly_new_jobs_df.columns:
+                    truly_new_jobs_df[col] = ''
+            
+            truly_new_jobs_df = truly_new_jobs_df[header]
+            
+            rows_to_append = truly_new_jobs_df.fillna('').values.tolist()
+            worksheet.append_rows(rows_to_append, value_input_option='USER_ENTERED')
+            print(f"Successfully added {num_new_jobs} new rows to Google Sheet.")
+        except Exception as e:
+            st.error(f"Failed to write to Google Sheet: {e}")
+            return 0
+            
+    return num_new_jobs
+
+def search_jobs(worksheet, role, location, start_date=None, end_date=None):
+    """Searches the worksheet data by role, location, and date."""
+    df = get_all_jobs_df(worksheet)
+    if df.empty:
         return pd.DataFrame()
 
-def format_columns_for_display(df):
-    """Formats DataFrame columns from lowercase to title case for display."""
-    if df.empty: return df
-    # Rename columns for better readability in the UI
-    rename_map = {
-        'id': 'ID',
-        'company': 'Company',
-        'role': 'Role',
-        'location': 'Location',
-        'experience': 'Experience',
-        'posteddate': 'Posted Date',
-        'sourceportal': 'Source Portal'
-    }
-    df = df.rename(columns=rename_map)
+    # Filter by role and location (case-insensitive search)
+    if role:
+        df = df[df['Role'].str.contains(role, case=False, na=False)]
+    if location:
+        df = df[df['Location'].str.contains(location, case=False, na=False)]
+        
+    # Filter by date range if provided
+    if start_date and end_date and 'Posted Date' in df.columns:
+        # Convert 'Posted Date' to datetime objects, handling different formats and errors
+        df['Posted Date'] = pd.to_datetime(df['Posted Date'], errors='coerce')
+        df = df.dropna(subset=['Posted Date']) # Remove rows where date conversion failed
+        
+        # Ensure comparison dates are timezone-naive
+        start_datetime_naive = pd.to_datetime(start_date).tz_localize(None)
+        end_datetime_naive = pd.to_datetime(end_date).tz_localize(None)
+
+        mask = (df['Posted Date'].dt.tz_localize(None) >= start_datetime_naive) & (df['Posted Date'].dt.tz_localize(None) <= end_datetime_naive)
+        df = df.loc[mask]
+
     return df
-
-def get_all_jobs_raw():
-    """Fetches all jobs with raw lowercase column names for internal checks."""
-    try:
-        data = supabase.table('jobs').select('company, role, location').execute().data
-        return pd.DataFrame(data) if data else pd.DataFrame()
-    except Exception as e:
-        st.error(f"An error occurred while fetching raw data: {e}")
-        return pd.DataFrame()
-
-def get_all_jobs():
-    """Fetches all jobs from the Supabase database and formats for display."""
-    try:
-        data = supabase.table('jobs').select('*').execute().data
-        df = pd.DataFrame(data) if data else pd.DataFrame()
-        return format_columns_for_display(df)
-    except Exception as e:
-        st.error(f"An error occurred while fetching jobs: {e}")
-        return pd.DataFrame()
