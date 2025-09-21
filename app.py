@@ -40,16 +40,13 @@ if filter_by_date:
 
 # --- Search Execution ---
 if st.button("Search", key="search_button", type="primary"):
-    start_datetime = datetime.combine(start_date, datetime.min.time()) if start_date else None
-    end_datetime = datetime.combine(end_date, datetime.max.time()) if end_date else None
-    
     with st.spinner("Searching..."):
         results_df = db.search_jobs(
-            worksheet,
+            worksheet, # Pass the worksheet object
             role=search_role, 
             location=search_location,
-            start_date=start_datetime,
-            end_date=end_datetime
+            start_date=start_date,
+            end_date=end_date
         )
     
     st.subheader(f"{len(results_df)} jobs found for your search")
@@ -57,6 +54,7 @@ if st.button("Search", key="search_button", type="primary"):
     if not results_df.empty:
         st.dataframe(results_df, use_container_width=True, hide_index=True)
     else:
+        # THIS IS THE "SEARCH AND SCRAPE" LOGIC
         st.info("No jobs found in the database matching your criteria.")
         
         if search_role or search_location:
@@ -71,7 +69,7 @@ if st.button("Search", key="search_button", type="primary"):
                     targeted_df = sc.scrape_targeted_jobs(role=search_role, location=search_location, limit=targeted_limit, apply_filter=apply_startup_filter)
                 if not targeted_df.empty:
                     st.write(f"Found {len(targeted_df)} jobs. Adding to spreadsheet...")
-                    num_added = db.add_jobs_df(worksheet, targeted_df)
+                    num_added = db.add_jobs_df(worksheet, targeted_df) # Pass worksheet
                     st.success(f"Scrape complete! Added {num_added} new jobs. Rerunning search...")
                     time.sleep(2)
                     st.rerun()
@@ -91,7 +89,7 @@ with st.sidebar.expander("Update Database (Broad Scrape)", expanded=True):
         progress_bar.progress(100, text="Scrape complete! Saving to spreadsheet...")
         
         if scraped_df is not None and not scraped_df.empty:
-            num_added = db.add_jobs_df(worksheet, scraped_df)
+            num_added = db.add_jobs_df(worksheet, scraped_df) # Pass worksheet
             if num_added > 0:
                 st.sidebar.success(f"Success! Added {num_added} new jobs.")
             else:
@@ -104,7 +102,7 @@ with st.sidebar.expander("Update Database (Broad Scrape)", expanded=True):
 
 with st.sidebar.expander("Download Database"):
     st.write("Download the entire job database as an Excel file.")
-    all_jobs_df = db.get_all_jobs_df(worksheet)
+    all_jobs_df = db.get_all_jobs_df(worksheet) # Pass worksheet
     if not all_jobs_df.empty:
         output = io.BytesIO()
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
@@ -129,7 +127,7 @@ with st.sidebar.expander("Upload to Database"):
             else:
                 upload_df = pd.read_excel(uploaded_file)
 
-            num_added = db.add_jobs_df(worksheet, upload_df)
+            num_added = db.add_jobs_df(worksheet, upload_df) # Pass worksheet
             st.success(f"File processed! Added {num_added} new job entries.")
             time.sleep(2)
             st.rerun()
